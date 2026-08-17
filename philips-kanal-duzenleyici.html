@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Philips TV Kanal Listesi Düzenleyici</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.14.2/sql-wasm.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1720; --panel:#182231; --panel2:#1f2c40; --border:#2c3b52;
+    --text:#e6edf5; --muted:#93a3b8; --accent:#4f9dff; --accent2:#2c7be5;
+    --ok:#2fbf71; --warn:#e6a23c; --danger:#e5484d; --radio:#a78bfa;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:14px; line-height:1.5;
+  }
+  header{
+    padding:20px 24px; background:var(--panel); border-bottom:1px solid var(--border);
+  }
+  header h1{margin:0 0 4px; font-size:20px;}
+  header p{margin:0; color:var(--muted);}
+  .wrap{max-width:1100px; margin:0 auto; padding:20px 24px 60px;}
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    padding:18px 20px; margin-bottom:18px;
+  }
+  .card h2{margin:0 0 10px; font-size:15px; color:var(--accent);}
+  details.card{padding:0;}
+  details.card summary{
+    cursor:pointer; padding:14px 20px; font-size:15px; color:var(--accent); list-style:none;
+    display:flex; align-items:center; gap:8px; user-select:none;
+  }
+  details.card summary::-webkit-details-marker{display:none;}
+  details.card summary::before{content:"▶"; font-size:11px; transition:transform .15s;}
+  details.card[open] summary::before{transform:rotate(90deg);}
+  details.card .inner{padding:0 20px 18px;}
+  ol,ul{margin:6px 0; padding-left:20px;}
+  li{margin:4px 0;}
+  .muted{color:var(--muted);}
+  .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center;}
+  button{
+    background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    padding:8px 14px; border-radius:7px; cursor:pointer; font-size:13px;
+  }
+  button:hover:not(:disabled){border-color:var(--accent); color:var(--accent);}
+  button:disabled{opacity:.4; cursor:not-allowed;}
+  button.primary{background:var(--accent2); border-color:var(--accent2); color:#fff; font-weight:600;}
+  button.primary:hover:not(:disabled){background:var(--accent); border-color:var(--accent);}
+  button.danger{background:rgba(229,72,77,.12); border-color:var(--danger); color:var(--danger);}
+  button.danger:hover:not(:disabled){background:var(--danger); color:#fff;}
+  .rowDeleteBtn{background:none; border:none; color:var(--muted); font-size:14px; padding:2px 6px; cursor:pointer;}
+  .rowDeleteBtn:hover{color:var(--danger);}
+  tbody tr.selected-row td{background:rgba(229,72,77,.08);}
+  input[type=text], input[type=number], input[type=file]{
+    background:#0d1420; color:var(--text); border:1px solid var(--border);
+    border-radius:6px; padding:7px 9px; font-size:13px;
+  }
+  input[type=file]{padding:6px;}
+  .pill{
+    display:inline-block; padding:2px 9px; border-radius:20px; font-size:12px; font-weight:600;
+  }
+  .pill.tv{background:rgba(79,157,255,.15); color:var(--accent);}
+  .pill.radio{background:rgba(167,139,250,.15); color:var(--radio);}
+  .pill.other{background:rgba(147,163,184,.15); color:var(--muted);}
+  #status{margin-top:10px; font-size:13px;}
+  #status.err{color:var(--danger);}
+  #status.ok{color:var(--ok);}
+  #status.warn{color:var(--warn);}
+  #stats{color:var(--muted); font-size:13px; margin-top:8px;}
+  .toolbar{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px;}
+  .toolbar .spacer{flex:1;}
+  #search{width:220px;}
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  thead th{
+    position:sticky; top:0; background:var(--panel2); text-align:left; padding:8px 8px;
+    border-bottom:1px solid var(--border); font-weight:600; color:var(--muted); white-space:nowrap;
+  }
+  tbody td{padding:5px 8px; border-bottom:1px solid rgba(44,59,82,.5); vertical-align:middle;}
+  tbody tr:hover{background:rgba(79,157,255,.05);}
+  tbody tr.dragging{opacity:.35;}
+  tbody tr.drag-over{border-top:2px solid var(--accent);}
+  tbody tr.dup td{background:rgba(229,72,77,.12);}
+  tbody tr.hidden-row{opacity:.55;}
+  .handle{cursor:grab; color:var(--muted); padding:0 4px; user-select:none;}
+  .num-input{width:64px; text-align:center;}
+  .name-input{width:100%; min-width:180px;}
+  .move-btns button{padding:2px 7px; font-size:11px;}
+  #tableScroll{max-height:60vh; overflow:auto; border:1px solid var(--border); border-radius:8px;}
+  .checkbox-cell{text-align:center;}
+  code{background:#0d1420; padding:1px 6px; border-radius:4px; font-size:12px;}
+  .badge-count{font-weight:700; color:var(--text);}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📺 Philips TV Kanal Listesi Düzenleyici</h1>
+  <p>USB'ye yedeklenen <code>tv.db</code> dosyasını açın, kanalları sıralayın/yeniden numaralayın/gizleyin, sonra yeni <code>tv.db</code> dosyasını indirip USB'ye geri kopyalayın. Her şey tarayıcınızda çalışır — dosya hiçbir yere yüklenmez.</p>
+</header>
+
+<div class="wrap">
+
+  <details class="card" open id="howtoCard">
+    <summary>Nasıl kullanılır? (önce okuyun)</summary>
+    <div class="inner">
+      <ol>
+        <li>USB bellekteki yedek klasöründe (genelde <code>ChannelMap_xx/ChannelList/</code>) bulunan <b>tv.db</b> VE <b>chanLst.bin</b> dosyalarının PC'deki kopyalarını, <b>ayrı bir yere önce yedekleyin</b> (bir kaza olursa geri dönebilmek için).</li>
+        <li>Aşağıdan her iki dosyayı da seçin: <b>tv.db</b> (zorunlu) ve <b>chanLst.bin</b> (aynı klasörden — <u>çok önemli</u>, aşağıda neden gerektiğini açıklıyoruz).</li>
+        <li>Kanal listesi tabloda görünecek. En hızlı yöntem: bir kanalı hangi sıraya koymak istiyorsanız <b>"No" kutusuna o numarayı yazıp Enter'a basın</b> — kanal o sıraya atlar, aradaki kanallar otomatik bir kayar (yüzlerce kanalı tek tek sürüklemenize gerek kalmaz). Sürükleyerek veya ok tuşlarıyla da taşıyabilirsiniz. İstemediğiniz kanalları "Gizli" kutusuyla gizleyin; isim düzeltmek isterseniz ada tıklayıp yazın.</li>
+        <li>Numara kutusuna yazdığınızda liste otomatik olarak 1'den itibaren yeniden numaralanır; sadece sürükleme/ok tuşuyla taşıdıysanız sonunda <b>"1'den Yeniden Numarala"</b> butonuna basarak numaraları sıraya göre kesinleştirin.</li>
+        <li><b>"Değişiklikleri İndir"</b> butonuna basın — güncellenmiş <b>tv.db</b> VE <b>chanLst.bin</b> dosyalarının ikisi de bilgisayarınıza iner.</li>
+        <li>İndirilen <b>iki dosyayı da</b> USB bellekteki <b>aynı ChannelList klasörüne</b>, eskilerinin üzerine yazacak şekilde kopyalayın. Diğer dosyalara dokunmayın (<code>list.db</code>, <code>channellib</code>, <code>s2channellib</code>, vb. olduğu gibi kalmalı).</li>
+        <li>USB belleği TV'ye takıp TV'nin kanal listesi içe aktarma/kopyalama menüsünden (genelde <i>Ayarlar/Kurulum → Kanallar → Kanal Listesi Kopyalama → TV'ye Kopyala</i>, model ve yıla göre menü adı değişebilir) yükleyin.</li>
+      </ol>
+      <p class="muted"><b>chanLst.bin neden gerekli?</b> Bu dosya, klasördeki her dosyanın (tv.db dahil) bir sağlama toplamını (CRC16 checksum) saklıyor. TV, USB'den içe aktarırken bu sağlamayı gerçek dosyayla karşılaştırıyor; sadece tv.db'yi değiştirip chanLst.bin'i olduğu gibi bırakırsanız sağlama tutmaz ve TV değişikliği <b>"kanal listesi değiştirilmedi"</b> diyerek reddedebilir. Bu araç artık chanLst.bin içindeki tv.db sağlamasını da otomatik güncelliyor.</p>
+      <p class="muted"><b>Sadece birkaç kanalı göstermek mi istiyorsunuz?</b> Kanalları silmek yerine, göstermek istediklerinizi seçip <b>"Seçilenler Dışındakileri Gizle"</b> kullanın. Kanallar tv.db'de kalmaya devam eder, sadece görünmez olur — bazı TV modellerinde çok sayıda kanalı (ör. 750 kanaldan yalnızca birkaçını bırakacak şekilde) <i>silmek</i>, kalan kanalların bir kısmının TV'de "kurulmamış/bulunamadı" görünmesine yol açabiliyor; gizleme bu riski taşımıyor ve tam olarak aynı görsel sonucu (istemediğiniz kanallar listede görünmez) veriyor.</p>
+      <p class="muted"><b>Kanal silme hakkında:</b> Tablodaki 🗑 ikonuyla tek tek, ya da soldaki kutucukları işaretleyip "Seçilenleri Sil" ile toplu silebilirsiniz. Silme, tv.db içindeki o kanalın kaydını ve ona ait EPG/izlenme kayıtlarını temizler. Ancak eğer TV'nizde o kanalı bir <i>favori listesine</i> eklediyseniz, bu bilgi ayrı bir dosyada (list.db) tutuluyor ve bu araç ona dokunmuyor — silinen kanal bir favori listesindeyse, favori kaydı karşılıksız kalabilir. Silme işlemi indirmeden önce yalnızca "Baştaki Sıraya Dön" ile geri alınabilir; bu yüzden TV'ye yüklemeden önce mutlaka orijinal dosyaların yedeğini ayrı tutun. Bu, resmi olmayan (tersine mühendislikle anlaşılmış) bir formattır.</p>
+    </div>
+  </details>
+
+  <div class="card">
+    <h2>1. Dosyaları Aç</h2>
+    <div class="row">
+      <label class="muted" style="width:110px;">tv.db:</label>
+      <input type="file" id="fileInput" accept=".db,.bin,application/octet-stream">
+      <span id="fileStatus" class="muted">Henüz dosya seçilmedi.</span>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <label class="muted" style="width:110px;">chanLst.bin:</label>
+      <input type="file" id="chanLstInput" accept=".bin,application/octet-stream">
+      <span id="chanLstStatus" class="muted">Henüz dosya seçilmedi (aynı klasörden — şiddetle önerilir).</span>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <div class="card" id="editorCard" style="display:none;">
+    <h2>2. Kanalları Düzenle</h2>
+    <div class="toolbar">
+      <input type="text" id="search" placeholder="Kanal adında ara…">
+      <button id="sortNumBtn">Numaraya Göre Sırala</button>
+      <button id="sortNameBtn">Ada Göre Sırala (A-Z)</button>
+      <button id="sortTypeBtn">Türe Göre Sırala (TV önce)</button>
+      <div class="spacer"></div>
+      <button id="renumberBtn">1'den Yeniden Numarala</button>
+      <button id="resetBtn">Baştaki Sıraya Dön</button>
+    </div>
+    <div class="toolbar">
+      <button id="hideExceptSelectedBtn" disabled>Seçilenler Dışındakileri Gizle (0)</button>
+      <button id="showSelectedBtn" disabled>Seçilenleri Göster (0)</button>
+      <button id="showAllBtn">Tümünü Göster (Gizliyi Kaldır)</button>
+      <div class="spacer"></div>
+      <button class="danger" id="deleteSelectedBtn" disabled>Seçilenleri Sil (0)</button>
+      <span class="muted" id="deletedInfo"></span>
+    </div>
+    <p class="muted" style="margin-top:-4px;"><b>Önerilen yöntem:</b> yalnızca birkaç kanalı göstermek istiyorsanız o kanalları seçip <b>"Seçilenler Dışındakileri Gizle"</b> kullanın — kanallar tv.db'de kalmaya devam eder, sadece görünmez olur. Bazı TV modellerinde çok sayıda kanalı <i>silmek</i> ("Seçilenleri Sil") kanal listesinin bozuk görünmesine (bazı kanalların "kurulmamış" çıkmasına) yol açabiliyor; gizleme bu riski taşımaz. Silme kalıcıdır ve indirmeden önce yalnızca "Baştaki Sıraya Dön" ile geri alınabilir.</p>
+    <div id="tableScroll">
+      <table>
+        <thead>
+          <tr>
+            <th><input type="checkbox" id="selectAllChk" title="Tümünü seç"></th>
+            <th></th>
+            <th>No</th>
+            <th></th>
+            <th>Kanal Adı</th>
+            <th>Tür</th>
+            <th>Gizli</th>
+            <th>Kilit</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div id="stats"></div>
+  </div>
+
+  <div class="card" id="exportCard" style="display:none;">
+    <h2>3. Değişiklikleri İndir</h2>
+    <div id="chanLstWarning" class="muted" style="margin-bottom:10px;"></div>
+    <div class="row">
+      <label class="muted" for="outName">tv.db dosya adı:</label>
+      <input type="text" id="outName" value="tv.db">
+      <button class="primary" id="exportBtn">Değişiklikleri İndir</button>
+    </div>
+    <div id="exportStatus" class="muted" style="margin-top:8px;"></div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const SQLJS_CDN = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.14.2/";
+  let SQL = null;
+  let db = null;
+  let channels = [];      // working (editable) state, array of channel objects
+  let originalSnapshot = null; // deep copy of the initial parsed state, for "revert"
+  let filterText = "";
+  let chanLstBytes = null;   // raw bytes of chanLst.bin, if loaded
+  let chanLstInfo = null;    // parsed structure: {versionMajor, versionMinor, entries}
+  let chanLstFileName = "chanLst.bin";
+  let selectedIds = new Set(); // channel _id's currently checked for bulk delete
+  let deletedIds = [];         // channel _id's removed this session (deleted on export)
+
+  const el = id => document.getElementById(id);
+  const fileInput = el("fileInput");
+  const fileStatusEl = el("fileStatus");
+  const chanLstInput = el("chanLstInput");
+  const chanLstStatusEl = el("chanLstStatus");
+  const chanLstWarningEl = el("chanLstWarning");
+  const statusEl = el("status");
+  const editorCard = el("editorCard");
+  const exportCard = el("exportCard");
+  const tbody = el("tbody");
+  const statsEl = el("stats");
+  const searchEl = el("search");
+  const selectAllChk = el("selectAllChk");
+  const deleteSelectedBtn = el("deleteSelectedBtn");
+  const deletedInfoEl = el("deletedInfo");
+  const hideExceptSelectedBtn = el("hideExceptSelectedBtn");
+  const showSelectedBtn = el("showSelectedBtn");
+  const showAllBtn = el("showAllBtn");
+  const exportStatusEl = el("exportStatus");
+  const exportBtn = el("exportBtn");
+
+  // ---- CRC16/MODBUS (poly 0x8005 reflected = 0xA001, init 0xFFFF, no xorout) ----
+  // Verified against the standard test vector CRC16/MODBUS("123456789") = 0x4B37,
+  // and against this exact tv.db/list.db pair's real chanLst.bin entries.
+  function crc16Modbus(bytes){
+    let crc = 0xFFFF;
+    for(let i = 0; i < bytes.length; i++){
+      crc ^= bytes[i];
+      for(let j = 0; j < 8; j++){
+        crc = (crc & 1) ? ((crc >>> 1) ^ 0xA001) : (crc >>> 1);
+      }
+    }
+    return crc & 0xFFFF;
+  }
+
+  function bytesToCString(bytes){
+    let end = bytes.indexOf(0);
+    if(end === -1) end = bytes.length;
+    return new TextDecoder("utf-8").decode(bytes.subarray(0, end));
+  }
+
+  // Parses a chanLst.bin manifest: header (version, model name) followed by a flat
+  // sequence of entries. Entries whose name starts with "/" are directory markers
+  // (no data/CRC follow); real file entries are followed by a CRC16 of that file's
+  // full contents (2 bytes, little-endian, for versionMajor < 120).
+  function parseChanLst(buf){
+    const bytes = new Uint8Array(buf);
+    const dv = new DataView(buf);
+    let off = 0;
+    const versionMinor = dv.getUint16(off, true); off += 2;
+    const versionMajor = dv.getUint16(off, true); off += 2;
+    off += 14; // unknown/reserved
+    const modelLen = dv.getUint32(off, true); off += 4;
+    const modelName = bytesToCString(bytes.subarray(off, off + modelLen));
+    off += modelLen;
+
+    const entries = [];
+    if(versionMajor < 120){
+      let dir = "";
+      while(off + 4 <= bytes.length){
+        const len = dv.getUint32(off, true); off += 4;
+        if(len <= 0 || off + len > bytes.length) break;
+        const nameBytes = bytes.subarray(off, off + len);
+        const name = bytesToCString(nameBytes);
+        off += len;
+        if(name.startsWith("/")){
+          dir = name;
+          entries.push({ dir, name: null, crcOffset: null });
+          continue;
+        }
+        if(off + 2 > bytes.length) break;
+        const crcOffset = off;
+        off += 2;
+        entries.push({ dir, name, crcOffset });
+      }
+    }
+    return { versionMinor, versionMajor, modelName, entries, supported: versionMajor < 120 };
+  }
+
+  function findEntry(info, dir, name){
+    return info.entries.find(e => e.dir === dir && e.name === name);
+  }
+
+  function setStatus(msg, kind){
+    statusEl.textContent = msg;
+    statusEl.className = kind || "";
+  }
+
+  function typeInfo(serviceType){
+    if(serviceType === "SERVICE_TYPE_AUDIO") return {label:"Radyo", cls:"radio"};
+    if(serviceType === "SERVICE_TYPE_AUDIO_VIDEO") return {label:"TV", cls:"tv"};
+    return {label:(serviceType||"Diğer").replace("SERVICE_TYPE_",""), cls:"other"};
+  }
+
+  async function ensureSqlJs(){
+    if(SQL) return SQL;
+    setStatus("SQLite motoru (sql.js) yükleniyor…", "warn");
+    SQL = await initSqlJs({ locateFile: f => SQLJS_CDN + f });
+    return SQL;
+  }
+
+  fileInput.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    fileStatusEl.textContent = file.name + " (" + Math.round(file.size/1024) + " KB)";
+    setStatus("Dosya okunuyor…", "warn");
+    try{
+      await ensureSqlJs();
+      const buf = await file.arrayBuffer();
+      db = new SQL.Database(new Uint8Array(buf));
+      // so that deleting a channel also cleans up its programs/watched_programs rows
+      // via the schema's declared "ON DELETE CASCADE" foreign keys.
+      db.run("PRAGMA foreign_keys = ON;");
+
+      // Sanity check: expected Android TV TvProvider schema
+      const check = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='channels'");
+      if(!check.length){
+        throw new Error("Bu dosyada 'channels' tablosu bulunamadı. Doğru dosyayı seçtiğinizden emin olun (ChannelList klasöründeki tv.db).");
+      }
+
+      const res = db.exec(`SELECT _id, display_number, display_name, service_type, browsable, locked
+                            FROM channels ORDER BY CAST(display_number AS INTEGER) ASC, _id ASC`);
+      if(!res.length){
+        throw new Error("Kanal tablosu boş görünüyor.");
+      }
+      const cols = res[0].columns;
+      const idx = name => cols.indexOf(name);
+      channels = res[0].values.map(row => ({
+        id: row[idx("_id")],
+        number: String(row[idx("display_number")] ?? ""),
+        name: row[idx("display_name")] ?? "",
+        serviceType: row[idx("service_type")] ?? "",
+        browsable: !!row[idx("browsable")],
+        locked: !!row[idx("locked")]
+      }));
+      originalSnapshot = channels.map(c => ({...c}));
+      selectedIds = new Set();
+      deletedIds = [];
+
+      editorCard.style.display = "";
+      exportCard.style.display = "";
+      setStatus("✔ " + channels.length + " kanal yüklendi.", "ok");
+      render();
+      updateChanLstWarning();
+    }catch(err){
+      console.error(err);
+      setStatus("Hata: " + err.message, "err");
+      editorCard.style.display = "none";
+      exportCard.style.display = "none";
+    }
+  });
+
+  chanLstInput.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    chanLstFileName = file.name;
+    try{
+      const buf = await file.arrayBuffer();
+      chanLstBytes = new Uint8Array(buf);
+      chanLstInfo = parseChanLst(buf);
+      if(!chanLstInfo.supported){
+        chanLstStatusEl.textContent = "⚠ " + file.name + " — v120+ formatı bu araç tarafından henüz desteklenmiyor.";
+      }else{
+        const tvEntry = findEntry(chanLstInfo, "", "tv.db");
+        chanLstStatusEl.textContent = tvEntry
+          ? ("✔ " + file.name + " (" + chanLstInfo.entries.length + " kayıt, tv.db bulundu)")
+          : ("⚠ " + file.name + " içinde tv.db kaydı bulunamadı.");
+      }
+    }catch(err){
+      console.error(err);
+      chanLstBytes = null;
+      chanLstInfo = null;
+      chanLstStatusEl.textContent = "Hata: " + err.message;
+    }
+    updateChanLstWarning();
+  });
+
+  function updateChanLstWarning(){
+    if(!chanLstWarningEl) return;
+    if(!chanLstBytes){
+      chanLstWarningEl.innerHTML = '⚠ <b>chanLst.bin seçilmedi.</b> Sadece tv.db\'yi kopyalarsanız TV, sağlama (checksum) tutmadığı için değişikliği reddedebilir ("kanal listesi değiştirilmedi"). Yukarıdan aynı klasördeki chanLst.bin dosyasını da seçmenizi şiddetle öneririz.';
+      chanLstWarningEl.style.color = "var(--warn)";
+    }else if(!chanLstInfo || !chanLstInfo.supported){
+      chanLstWarningEl.innerHTML = '⚠ Seçilen chanLst.bin formatı (v120+) bu araç tarafından desteklenmiyor. tv.db yine de indirilecek ama sağlama güncellenemeyecek — TV değişikliği reddedebilir.';
+      chanLstWarningEl.style.color = "var(--warn)";
+    }else if(!findEntry(chanLstInfo, "", "tv.db")){
+      chanLstWarningEl.innerHTML = '⚠ chanLst.bin içinde tv.db kaydı bulunamadı, sağlama güncellenemeyecek.';
+      chanLstWarningEl.style.color = "var(--warn)";
+    }else{
+      chanLstWarningEl.innerHTML = '✔ chanLst.bin yüklendi — indirirken tv.db\'nin sağlaması otomatik güncellenecek.';
+      chanLstWarningEl.style.color = "var(--ok)";
+    }
+  }
+
+  function visibleList(){
+    if(!filterText) return channels;
+    const f = filterText.toLowerCase();
+    return channels.filter(c => c.name.toLowerCase().includes(f) || String(c.number).includes(f));
+  }
+
+  function findDuplicateNumbers(){
+    const counts = {};
+    channels.forEach(c => { counts[c.number] = (counts[c.number]||0) + 1; });
+    return counts;
+  }
+
+  function render(){
+    const list = visibleList();
+    const dupCounts = findDuplicateNumbers();
+    const filtering = !!filterText;
+
+    // drop selections that no longer exist (channel was deleted elsewhere)
+    const liveIds = new Set(channels.map(c => c.id));
+    selectedIds.forEach(id => { if(!liveIds.has(id)) selectedIds.delete(id); });
+
+    tbody.innerHTML = "";
+    const frag = document.createDocumentFragment();
+
+    list.forEach((c) => {
+      const realIndex = channels.indexOf(c);
+      const tr = document.createElement("tr");
+      tr.draggable = !filtering;
+      tr.dataset.id = c.id;
+      if(dupCounts[c.number] > 1) tr.classList.add("dup");
+      if(!c.browsable) tr.classList.add("hidden-row");
+      if(selectedIds.has(c.id)) tr.classList.add("selected-row");
+
+      const ti = typeInfo(c.serviceType);
+
+      tr.innerHTML = `
+        <td class="checkbox-cell"><input type="checkbox" class="selectChk" ${selectedIds.has(c.id) ? "checked" : ""}></td>
+        <td class="handle" title="${filtering ? 'Sıralama için aramayı temizleyin' : 'Sürükleyerek taşı'}">${filtering ? '' : '⠿'}</td>
+        <td><input type="text" inputmode="numeric" class="num-input" value="${escapeHtml(c.number)}"></td>
+        <td class="move-btns">
+          <button class="upBtn" ${filtering ? 'disabled':''} title="Yukarı taşı">▲</button>
+          <button class="downBtn" ${filtering ? 'disabled':''} title="Aşağı taşı">▼</button>
+        </td>
+        <td><input type="text" class="name-input" value="${escapeHtml(c.name)}"></td>
+        <td><span class="pill ${ti.cls}">${ti.label}</span></td>
+        <td class="checkbox-cell"><input type="checkbox" class="browsableChk" ${c.browsable ? "" : "checked"}></td>
+        <td class="checkbox-cell"><input type="checkbox" class="lockedChk" ${c.locked ? "checked" : ""}></td>
+        <td><button class="rowDeleteBtn" title="Bu kanalı sil">🗑</button></td>
+      `;
+
+      // selection checkbox
+      tr.querySelector(".selectChk").addEventListener("change", (ev) => {
+        if(ev.target.checked) selectedIds.add(c.id); else selectedIds.delete(c.id);
+        updateDeleteUi();
+        tr.classList.toggle("selected-row", ev.target.checked);
+      });
+      // number edit: typing a number here MOVES this channel to that position in the
+      // list (like inserting into a spreadsheet row) — everything in between shifts
+      // down/up by one, and the whole list is renumbered 1..N to match the new order.
+      const numInput = tr.querySelector(".num-input");
+      numInput.addEventListener("change", (ev) => moveToPosition(c, ev.target.value));
+      numInput.addEventListener("keydown", (ev) => {
+        if(ev.key === "Enter"){ ev.preventDefault(); ev.target.blur(); }
+      });
+      // name edit (no full re-render needed on every keystroke)
+      const nameInput = tr.querySelector(".name-input");
+      nameInput.addEventListener("input", (ev) => { c.name = ev.target.value; });
+      // hidden checkbox = inverse of browsable
+      tr.querySelector(".browsableChk").addEventListener("change", (ev) => {
+        c.browsable = !ev.target.checked;
+        render();
+      });
+      tr.querySelector(".lockedChk").addEventListener("change", (ev) => {
+        c.locked = ev.target.checked;
+      });
+      // move buttons
+      tr.querySelector(".upBtn").addEventListener("click", () => moveChannel(realIndex, -1));
+      tr.querySelector(".downBtn").addEventListener("click", () => moveChannel(realIndex, 1));
+      // per-row delete
+      tr.querySelector(".rowDeleteBtn").addEventListener("click", () => {
+        if(confirm(`"${c.name || c.number}" adlı kanalı silmek istediğinize emin misiniz?\n\nBu işlem indirmeden önce yalnızca "Baştaki Sıraya Dön" ile geri alınabilir.`)){
+          deleteChannels([c.id]);
+        }
+      });
+
+      // drag & drop reordering
+      tr.addEventListener("dragstart", (ev) => {
+        ev.dataTransfer.setData("text/plain", String(realIndex));
+        tr.classList.add("dragging");
+      });
+      tr.addEventListener("dragend", () => tr.classList.remove("dragging"));
+      tr.addEventListener("dragover", (ev) => { ev.preventDefault(); tr.classList.add("drag-over"); });
+      tr.addEventListener("dragleave", () => tr.classList.remove("drag-over"));
+      tr.addEventListener("drop", (ev) => {
+        ev.preventDefault();
+        tr.classList.remove("drag-over");
+        const fromIndex = parseInt(ev.dataTransfer.getData("text/plain"), 10);
+        const toIndex = channels.indexOf(c);
+        if(isNaN(fromIndex) || fromIndex === toIndex) return;
+        const [moved] = channels.splice(fromIndex, 1);
+        channels.splice(toIndex, 0, moved);
+        render();
+      });
+
+      frag.appendChild(tr);
+    });
+
+    tbody.appendChild(frag);
+
+    const dupTotal = Object.values(dupCounts).filter(n => n > 1).length;
+    const hiddenCount = channels.filter(c => !c.browsable).length;
+    statsEl.innerHTML = `Toplam: <span class="badge-count">${channels.length}</span> kanal &nbsp;·&nbsp; Gizli: <span class="badge-count">${hiddenCount}</span>`
+      + (filtering ? ` &nbsp;·&nbsp; Filtre: "${escapeHtml(filterText)}" (${list.length} sonuç)` : "")
+      + (dupTotal ? ` &nbsp;·&nbsp; <span style="color:var(--danger)">⚠ ${dupTotal} tekrarlanan numara var — indirmeden önce düzeltin</span>` : "");
+
+    exportBtn.disabled = dupTotal > 0;
+
+    selectAllChk.checked = list.length > 0 && list.every(c => selectedIds.has(c.id));
+    updateDeleteUi();
+  }
+
+  function deleteChannels(ids){
+    const idSet = new Set(ids);
+    channels = channels.filter(c => {
+      if(idSet.has(c.id)){
+        deletedIds.push(c.id);
+        selectedIds.delete(c.id);
+        return false;
+      }
+      return true;
+    });
+    render();
+  }
+
+  function updateDeleteUi(){
+    const n = selectedIds.size;
+    deleteSelectedBtn.textContent = `Seçilenleri Sil (${n})`;
+    deleteSelectedBtn.disabled = n === 0;
+    deletedInfoEl.textContent = deletedIds.length ? `Bu oturumda silinen: ${deletedIds.length} kanal (henüz indirilmedi)` : "";
+    hideExceptSelectedBtn.textContent = `Seçilenler Dışındakileri Gizle (${n})`;
+    hideExceptSelectedBtn.disabled = n === 0;
+    showSelectedBtn.textContent = `Seçilenleri Göster (${n})`;
+    showSelectedBtn.disabled = n === 0;
+  }
+
+  function moveChannel(index, dir){
+    const newIndex = index + dir;
+    if(newIndex < 0 || newIndex >= channels.length) return;
+    const [item] = channels.splice(index, 1);
+    channels.splice(newIndex, 0, item);
+    render();
+  }
+
+  // Moves channel c to 1-based position "targetPosRaw" in the list, shifting every
+  // channel in between by one, then renumbers the whole list 1..N to match the new
+  // order — this is what makes typing a number in the "No" box instantly reorder.
+  function moveToPosition(c, targetPosRaw){
+    if(filterText){
+      setStatus("Numarayla taşımak için önce aramayı temizleyin.", "warn");
+      render(); // redraw so the input shows the channel's real (unchanged) number again
+      return;
+    }
+    const target = parseInt(String(targetPosRaw).trim(), 10);
+    if(isNaN(target) || target < 1){
+      render();
+      return;
+    }
+    const oldIndex = channels.indexOf(c);
+    const newIndex = Math.min(target, channels.length) - 1;
+    if(newIndex !== oldIndex){
+      channels.splice(oldIndex, 1);
+      channels.splice(newIndex, 0, c);
+    }
+    channels.forEach((ch, i) => { ch.number = String(i + 1); });
+    render();
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+  }
+
+  searchEl.addEventListener("input", (e) => {
+    filterText = e.target.value.trim();
+    render();
+  });
+
+  selectAllChk.addEventListener("change", (e) => {
+    visibleList().forEach(c => {
+      if(e.target.checked) selectedIds.add(c.id); else selectedIds.delete(c.id);
+    });
+    render();
+  });
+
+  deleteSelectedBtn.addEventListener("click", () => {
+    const n = selectedIds.size;
+    if(n === 0) return;
+    const totalBefore = channels.length;
+    const remainingAfter = totalBefore - n;
+    let msg = `${n} kanalı silmek istediğinize emin misiniz?\n\nBu işlem indirmeden önce yalnızca "Baştaki Sıraya Dön" ile geri alınabilir.`;
+    if(remainingAfter > 0 && n / totalBefore > 0.3){
+      msg += `\n\n⚠ ${totalBefore} kanaldan ${remainingAfter} tanesi kalacak — bazı TV modellerinde bu kadar büyük bir silme, kalan kanalların bir kısmının "kurulmamış" görünmesine yol açabiliyor. Bunun yerine silmek istemediğiniz kanalları seçip "Seçilenler Dışındakileri Gizle" kullanmanızı öneririz (kanallar veritabanında kalır, sadece görünmez olur).`;
+    }
+    if(confirm(msg)){
+      deleteChannels(Array.from(selectedIds));
+    }
+  });
+
+  hideExceptSelectedBtn.addEventListener("click", () => {
+    if(selectedIds.size === 0) return;
+    channels.forEach(c => { c.browsable = selectedIds.has(c.id); });
+    render();
+  });
+
+  showSelectedBtn.addEventListener("click", () => {
+    if(selectedIds.size === 0) return;
+    channels.forEach(c => { if(selectedIds.has(c.id)) c.browsable = true; });
+    render();
+  });
+
+  showAllBtn.addEventListener("click", () => {
+    channels.forEach(c => { c.browsable = true; });
+    render();
+  });
+
+  el("sortNumBtn").addEventListener("click", () => {
+    if(filterText){ setStatus("Sıralama işlemleri için önce aramayı temizleyin.", "warn"); return; }
+    channels.sort((a,b) => (parseInt(a.number,10)||0) - (parseInt(b.number,10)||0));
+    render();
+  });
+  el("sortNameBtn").addEventListener("click", () => {
+    if(filterText){ setStatus("Sıralama işlemleri için önce aramayı temizleyin.", "warn"); return; }
+    channels.sort((a,b) => a.name.localeCompare(b.name, "tr"));
+    render();
+  });
+  el("sortTypeBtn").addEventListener("click", () => {
+    if(filterText){ setStatus("Sıralama işlemleri için önce aramayı temizleyin.", "warn"); return; }
+    channels.sort((a,b) => {
+      const rank = t => t === "SERVICE_TYPE_AUDIO_VIDEO" ? 0 : (t === "SERVICE_TYPE_AUDIO" ? 1 : 2);
+      return rank(a.serviceType) - rank(b.serviceType);
+    });
+    render();
+  });
+  el("renumberBtn").addEventListener("click", () => {
+    if(filterText){ setStatus("Yeniden numaralama için önce aramayı temizleyin.", "warn"); return; }
+    channels.forEach((c, i) => { c.number = String(i + 1); });
+    render();
+  });
+  el("resetBtn").addEventListener("click", () => {
+    if(!originalSnapshot) return;
+    channels = originalSnapshot.map(c => ({...c}));
+    selectedIds = new Set();
+    deletedIds = [];
+    filterText = "";
+    searchEl.value = "";
+    render();
+    setStatus("Baştaki sıraya dönüldü.", "ok");
+  });
+
+  function triggerDownload(bytes, filename, mime){
+    const blob = new Blob([bytes], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  exportBtn.addEventListener("click", () => {
+    try{
+      const dupCounts = findDuplicateNumbers();
+      if(Object.values(dupCounts).some(n => n > 1)){
+        exportStatusEl.textContent = "⚠ Tekrarlanan kanal numaraları var, önce düzeltin.";
+        exportStatusEl.style.color = "var(--danger)";
+        return;
+      }
+      // version_number is Android TV's per-row "this is a newer update" marker; the Philips
+      // tuner service appears to use it to decide whether a row actually changed when the
+      // channel list is re-imported from USB, so it must be bumped even though we don't
+      // otherwise use it. Without this, the TV can report "kanal listesi değiştirilmedi".
+      const stmt = db.prepare("UPDATE channels SET display_number=?, display_name=?, browsable=?, locked=?, version_number = COALESCE(version_number, 0) + 1 WHERE _id=?");
+      channels.forEach(c => {
+        stmt.run([c.number, c.name, c.browsable ? 1 : 0, c.locked ? 1 : 0, c.id]);
+      });
+      stmt.free();
+
+      // Deletions: foreign_keys=ON (set when the file was opened) makes the schema's
+      // own "ON DELETE CASCADE" clean up matching programs/watched_programs rows too.
+      if(deletedIds.length){
+        const delStmt = db.prepare("DELETE FROM channels WHERE _id=?");
+        deletedIds.forEach(id => delStmt.run([id]));
+        delStmt.free();
+      }
+
+      // Defensive cleanup: remove any programs/watched_programs rows left pointing at a
+      // channel_id that no longer exists (e.g. from channels removed some other way,
+      // like on the TV itself, where the cascade above never ran). Harmless either way —
+      // these are just cached EPG/watch-history rows, not the live channel list.
+      db.run("DELETE FROM programs WHERE channel_id NOT IN (SELECT _id FROM channels);");
+      db.run("DELETE FROM watched_programs WHERE channel_id NOT IN (SELECT _id FROM channels);");
+
+      const data = db.export(); // Uint8Array of the new tv.db
+      const outName = (el("outName").value || "tv.db").trim() || "tv.db";
+      triggerDownload(data, outName, "application/x-sqlite3");
+
+      let msg = "✔ " + outName + " indirildi" + (deletedIds.length ? ` (${deletedIds.length} kanal silindi)` : "") + ".";
+
+      // Patch chanLst.bin's stored CRC16 for tv.db to match the newly exported bytes,
+      // and download it too — without this the TV's checksum check fails and the
+      // import is silently rejected ("kanal listesi değiştirilmedi").
+      if(chanLstBytes && chanLstInfo && chanLstInfo.supported){
+        const tvEntry = findEntry(chanLstInfo, "", "tv.db");
+        if(tvEntry){
+          const patched = chanLstBytes.slice(); // copy
+          const newCrc = crc16Modbus(data);
+          const dv = new DataView(patched.buffer);
+          dv.setUint16(tvEntry.crcOffset, newCrc, true);
+          triggerDownload(patched, chanLstFileName, "application/octet-stream");
+          msg += " " + chanLstFileName + " de güncellenmiş sağlama (CRC) ile indirildi.";
+          msg += " İkisini de USB'deki ChannelList klasörüne, eskilerinin üzerine yazacak şekilde kopyalayın.";
+        }else{
+          msg += " ⚠ chanLst.bin'de tv.db kaydı bulunamadığı için sağlama güncellenemedi.";
+        }
+      }else{
+        msg += " ⚠ chanLst.bin seçilmediği/desteklenmediği için sağlama güncellenmedi — TV değişikliği reddedebilir. Yukarıdan chanLst.bin'i de seçip tekrar indirmenizi öneririz.";
+      }
+
+      exportStatusEl.textContent = msg;
+      exportStatusEl.style.color = chanLstBytes && chanLstInfo && chanLstInfo.supported ? "var(--ok)" : "var(--warn)";
+    }catch(err){
+      console.error(err);
+      exportStatusEl.textContent = "Hata: " + err.message;
+      exportStatusEl.style.color = "var(--danger)";
+    }
+  });
+
+})();
+</script>
+
+</body>
+</html>
