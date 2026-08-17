@@ -47,3 +47,7 @@ Hiçbir dosya bir sunucuya yüklenmez. Tüm işlemler tarayıcınızda, yerel ol
 ## Katkı / geri bildirim
 
 Sorun bildirmek veya öneride bulunmak için bir issue açabilirsiniz.
+
+## İletişim
+
+[@ulkuyusuf](https://twitter.com/ulkuyusuf)
